@@ -1,0 +1,78 @@
+---
+title: "Prediction Assignment Writeup"
+author: "John Magcamit"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# OVERVIEW
+
+The goal of this project is to predict the manner in which the user performed the exercise (classe). Random Forest was used to create the model for the prediction and k-fold Cross Validation was used as the resampling technique because it was faster in processing time vs. Bootstrapping. Also, bootstrapping had no positive impact on model accuracy as stated in [pml-RandomForestPerformace](https://github.com/lgreski/datasciencectacontent/blob/master/markdown/pml-randomForestPerformance.md). The Random Forest model with 10-fold cross validation produced an accuracy of 99.14%.
+
+
+
+## Initializing Libraries and Data
+
+```{r, message=FALSE, warning=FALSE}
+library(caret)
+library(dplyr)
+library(parallel)
+library(doParallel)
+
+traindf <- read.csv("pml-training.csv")
+testdf <- read.csv("pml-testing.csv")
+```
+
+Cleaning the Training Data by replacing blank values  to NA then removing NA columns. The first 7 columns are also removed to reduce irrelevant variables for creating the model.
+```{r}
+traindf[traindf==""] <- NA
+traindf <- traindf[,colSums(is.na(traindf))==0]
+traindf <- traindf[,-c(1:7)]
+```
+
+## Creating the model
+
+Setting up the parallel processing to speed up building a model using random forest. (c) [pml-randomForestPerformance](https://github.com/lgreski/datasciencectacontent/blob/master/markdown/pml-randomForestPerformance.md)
+```{r}
+cluster <- makeCluster(detectCores()-1)
+registerDoParallel(cluster)
+```
+
+```{r, cache=TRUE}
+set.seed(23)
+inTrain <- createDataPartition(y=traindf$classe, p=0.7, list = FALSE)
+training <- traindf[inTrain,]
+testing <- traindf[-inTrain,]
+#setting x and y to avoid slowness of caret with model syntax
+x <- training[,-53]
+y <- training[,53]
+fitControl <- trainControl(method="cv", number=10, allowParallel = TRUE)
+fit <- train(x,y, method="rf", data=training, trControl=fitControl)
+```
+
+After finishing the training, parallel processing is closed.
+```{r}
+stopCluster(cluster)
+registerDoSEQ()
+```
+
+Checking the models accuracy
+```{r}
+fit
+
+fit$resample
+
+confusionMatrix.train(fit)
+```
+
+Matching the columns from training data to testdf and adding the classe variable to replace the problemid column.
+```{r}
+testdf <- testdf[names(testdf) %in% names(training)]
+testdf$classe <- as.character("")
+predict(fit, testdf)
+```
+
